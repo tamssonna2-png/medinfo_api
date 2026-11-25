@@ -1,0 +1,27 @@
+# Environnement & secrets
+.env
+.env.*
+*.local
+
+# Base SQLite locale & fichiers statiques générés
+db.sqlite3
+db.sqlite3-journal
+staticfiles/
+media/
+
+# Python & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# Environnements virtuels & IDE
+venv/
+.venv/
+env/
+.vscode/
+.idea/
+
+# Vercel
+.vercel
