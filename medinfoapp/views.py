@@ -182,7 +182,7 @@ class AssistantAIView(APIView):
         if not question:
             question = (
                 "Identifie le médicament visible et fournis sa posologie, ses effets secondaires, "
-                "ses contre-indications et ses interactions en te basant sur le catalogue fourni."
+                "ses contre-indications et ses interactions en te basant sur le catalogue fourni. et si ce n'est pas present sur le catalogue, tu peux faire une recherche sur le net"
             )
 
         if medicament_nom:
