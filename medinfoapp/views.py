@@ -107,7 +107,14 @@ class RegisterView(APIView):
 
 class LoginView(APIView):
     def post(self, request):
-        serializer = LoginSerializer(data=request.data)
+        # MODIF : autorise "username", "email" ou "identifier" dans le payload entrant
+        payload = request.data.copy()
+        if not payload.get("username"):
+            fallback_id = payload.get("email") or payload.get("identifier")
+            if fallback_id:
+                payload["username"] = fallback_id
+
+        serializer = LoginSerializer(data=payload)
         serializer.is_valid(raise_exception=True)
         user = serializer.validated_data["user"]
         token, _ = Token.objects.get_or_create(user=user)
@@ -115,6 +122,8 @@ class LoginView(APIView):
             {
                 "id": user.id,
                 "username": user.username,
+                # MODIF : inclut l'email de l'utilisateur dans la réponse de connexion
+                "email": user.email,
                 "role": user.role,
                 "token": token.key,
             },

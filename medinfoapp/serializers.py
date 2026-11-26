@@ -6,6 +6,7 @@ User = get_user_model()
 
 
 class RegisterSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(required=True)
     password = serializers.CharField(write_only=True, min_length=6)
     role = serializers.ChoiceField(choices=User.Role.choices, default=User.Role.USAGER)
 
@@ -13,13 +14,19 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = User
         fields = ["id", "username", "email", "password", "role"]
 
+    def validate_email(self, value):
+        email = value.strip().lower()
+        if User.objects.filter(email__iexact=email).exists():
+            raise serializers.ValidationError("Un compte avec cet email existe déjà.")
+        return email
+
     def create(self, validated_data):
         role = validated_data.get("role", User.Role.USAGER)
         # Pour le MVP de ce soir, est_valide est True par défaut ;
         # tu pourras restreindre l'ajout aux PRO validés quand tu le souhaites.
         user = User.objects.create_user(
             username=validated_data["username"],
-            email=validated_data.get("email", ""),
+            email=validated_data["email"],
             password=validated_data["password"],
             role=role,
             est_valide=True,
@@ -32,7 +39,17 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
 
     def validate(self, data):
-        user = authenticate(username=data["username"], password=data["password"])
+        identifier = data["username"].strip()
+        password = data["password"]
+
+        login_username = identifier
+        if "@" in identifier:
+            matched_user = User.objects.filter(email__iexact=identifier).first()
+            if not matched_user:
+                raise serializers.ValidationError("Identifiants invalides.")
+            login_username = matched_user.username
+
+        user = authenticate(username=login_username, password=password)
         if not user:
             raise serializers.ValidationError("Identifiants invalides.")
         if not user.is_active:

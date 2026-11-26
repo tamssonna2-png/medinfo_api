@@ -7,6 +7,8 @@ class User(AbstractUser):
         USAGER = "USAGER", "Usager"
         PRO = "PRO", "Professionnel de santé"
 
+    
+    email = models.EmailField(unique=True)
     role = models.CharField(
         max_length=10,
         choices=Role.choices,
@@ -14,7 +16,17 @@ class User(AbstractUser):
     )
     est_valide = models.BooleanField(default=True)
 
+    class Meta(AbstractUser.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                models.functions.Lower("email"),
+                name="unique_lower_email",
+            )
+        ]
+
     def save(self, *args, **kwargs):
+        if self.email:
+            self.email = self.email.strip().lower()
         # Par défaut : un usager est actif/valide directement ;
         # un pro peut être créé en attente ou validé selon ton besoin de test ce soir.
         if not self.pk and self.role == self.Role.PRO and "est_valide" not in kwargs:
