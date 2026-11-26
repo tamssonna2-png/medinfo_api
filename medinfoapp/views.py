@@ -3,12 +3,14 @@ import os
 import time
 import requests
 from django.db.models import Q
+from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Medicament
+from .models import Medicament, User
+from .notifications import notifier_admin_nouveau_pro, notifier_pro_decision
 from .serializers import LoginSerializer, MedicamentSerializer, RegisterSerializer
 
 AVERTISSEMENT_MEDICAL = (
@@ -24,6 +26,30 @@ FALLBACK_MODELS = [
     "gemini-3.7-flash",
     "gemini-flash-latest",
 ]
+
+
+def _is_admin_user(user) -> bool:
+    return bool(
+        user
+        and user.is_authenticated
+        and (user.is_staff or user.is_superuser)
+    )
+
+
+def _serialize_pro_user(u: User) -> dict:
+    return {
+        "id": u.id,
+        "username": u.username,
+        "email": u.email,
+        "first_name": u.first_name,
+        "last_name": u.last_name,
+        "role": u.role,
+        "est_valide": u.est_valide,
+        "statut_pro": u.statut_pro,
+        "statut_pro_label": u.get_statut_pro_display(),
+        "date_joined": u.date_joined,
+        "is_active": u.is_active,
+    }
 
 
 def _load_env_fallback():
@@ -93,12 +119,18 @@ class RegisterView(APIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         token, _ = Token.objects.get_or_create(user=user)
+
+        if user.role == User.Role.PRO:
+            notifier_admin_nouveau_pro(user)
+
         return Response(
             {
                 "id": user.id,
                 "username": user.username,
                 "email": user.email,
                 "role": user.role,
+                "est_valide": user.est_valide,
+                "statut_pro": user.statut_pro,
                 "token": token.key,
             },
             status=status.HTTP_201_CREATED,
@@ -107,7 +139,6 @@ class RegisterView(APIView):
 
 class LoginView(APIView):
     def post(self, request):
-        # MODIF : autorise "username", "email" ou "identifier" dans le payload entrant
         payload = request.data.copy()
         if not payload.get("username"):
             fallback_id = payload.get("email") or payload.get("identifier")
@@ -122,9 +153,10 @@ class LoginView(APIView):
             {
                 "id": user.id,
                 "username": user.username,
-                # MODIF : inclut l'email de l'utilisateur dans la réponse de connexion
                 "email": user.email,
                 "role": user.role,
+                "est_valide": user.est_valide,
+                "statut_pro": user.statut_pro,
                 "token": token.key,
             },
             status=status.HTTP_200_OK,
@@ -149,6 +181,11 @@ class MedicamentListCreateView(APIView):
         if getattr(request.user, "role", None) != "PRO":
             return Response(
                 {"detail": "Seul un professionnel de santé (PRO) peut ajouter un médicament."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not getattr(request.user, "est_valide", False):
+            return Response(
+                {"detail": "Votre compte PRO est en attente de validation par un administrateur."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         serializer = MedicamentSerializer(data=request.data)
@@ -309,6 +346,95 @@ class AssistantAIView(APIView):
                 "medicament_trouve": med_trouve,
                 "source": f"Gemini ({used_model}) + Catalogue MediInfo",
                 "avertissement": AVERTISSEMENT_MEDICAL,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class AdminProRequestListView(APIView):
+    def get(self, request):
+        if not _is_admin_user(request.user):
+            return Response(
+                {"detail": "Accès réservé aux administrateurs."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        statut = (request.query_params.get("statut") or "PENDING").strip().upper()
+        qs = User.objects.filter(role=User.Role.PRO).order_by("-date_joined")
+
+        valid_statuts = {choice[0] for choice in User.StatutPro.choices}
+        if statut != "ALL":
+            if statut not in valid_statuts:
+                return Response(
+                    {"detail": f"Statut invalide : {statut}. Valeurs possibles : {', '.join(sorted(valid_statuts))} ou ALL."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            qs = qs.filter(statut_pro=statut)
+
+        return Response(
+            {
+                "count": qs.count(),
+                "results": [_serialize_pro_user(u) for u in qs],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class AdminProRequestDetailView(APIView):
+    def get(self, request, user_id: int):
+        if not _is_admin_user(request.user):
+            return Response(
+                {"detail": "Accès réservé aux administrateurs."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        target_user = get_object_or_404(User, pk=user_id, role=User.Role.PRO)
+        return Response(_serialize_pro_user(target_user), status=status.HTTP_200_OK)
+
+
+class AdminProApproveView(APIView):
+    def post(self, request, user_id: int):
+        if not _is_admin_user(request.user):
+            return Response(
+                {"detail": "Accès réservé aux administrateurs."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        target_user = get_object_or_404(User, pk=user_id, role=User.Role.PRO)
+        target_user.est_valide = True
+        target_user.statut_pro = User.StatutPro.VALIDE
+        target_user.save(update_fields=["est_valide", "statut_pro"])
+
+        notifier_pro_decision(target_user, accepte=True)
+
+        return Response(
+            {
+                "message": f"Le compte PRO de {target_user.username} a été validé.",
+                "user": _serialize_pro_user(target_user),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class AdminProRejectView(APIView):
+    def post(self, request, user_id: int):
+        if not _is_admin_user(request.user):
+            return Response(
+                {"detail": "Accès réservé aux administrateurs."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        target_user = get_object_or_404(User, pk=user_id, role=User.Role.PRO)
+        target_user.est_valide = False
+        target_user.statut_pro = User.StatutPro.REFUSE
+        target_user.save(update_fields=["est_valide", "statut_pro"])
+
+        notifier_pro_decision(target_user, accepte=False)
+
+        return Response(
+            {
+                "message": f"Le compte PRO de {target_user.username} a été refusé.",
+                "user": _serialize_pro_user(target_user),
             },
             status=status.HTTP_200_OK,
         )

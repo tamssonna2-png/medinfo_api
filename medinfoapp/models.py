@@ -7,7 +7,13 @@ class User(AbstractUser):
         USAGER = "USAGER", "Usager"
         PRO = "PRO", "Professionnel de santé"
 
-    
+    # MODIF : définition de StatutPro manquante
+    class StatutPro(models.TextChoices):
+        NON_APPLICABLE = "NONE", "Non applicable"
+        EN_ATTENTE = "PENDING", "En attente de validation"
+        VALIDE = "VERIFIED", "Vérifié"
+        REFUSE = "REJECTED", "Refusé"
+
     email = models.EmailField(unique=True)
     role = models.CharField(
         max_length=10,
@@ -15,6 +21,11 @@ class User(AbstractUser):
         default=Role.USAGER,
     )
     est_valide = models.BooleanField(default=True)
+    statut_pro = models.CharField(
+        max_length=10,
+        choices=StatutPro.choices,
+        default=StatutPro.NON_APPLICABLE,
+    )
 
     class Meta(AbstractUser.Meta):
         constraints = [
@@ -27,10 +38,15 @@ class User(AbstractUser):
     def save(self, *args, **kwargs):
         if self.email:
             self.email = self.email.strip().lower()
-        # Par défaut : un usager est actif/valide directement ;
-        # un pro peut être créé en attente ou validé selon ton besoin de test ce soir.
-        if not self.pk and self.role == self.Role.PRO and "est_valide" not in kwargs:
-            pass
+        if not self.pk:
+            if self.role == self.Role.PRO:
+                self.est_valide = False
+                if self.statut_pro == self.StatutPro.NON_APPLICABLE:
+                    self.statut_pro = self.StatutPro.EN_ATTENTE
+            else:
+                self.est_valide = True
+                self.statut_pro = self.StatutPro.NON_APPLICABLE
+
         super().save(*args, **kwargs)
 
     def __str__(self):

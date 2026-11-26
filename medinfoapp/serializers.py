@@ -1,6 +1,7 @@
 from django.contrib.auth import authenticate, get_user_model
 from rest_framework import serializers
 from .models import Medicament
+from .models import User
 
 User = get_user_model()
 
@@ -78,3 +79,33 @@ class MedicamentSerializer(serializers.ModelSerializer):
             "date_creation",
         ]
         read_only_fields = ["id", "ajoute_par", "ajoute_par_username", "date_creation"]
+
+
+
+
+from django.shortcuts import get_object_or_404
+from .notifications import notifier_admin_nouveau_pro, notifier_pro_decision
+
+
+def _is_admin_user(user) -> bool:
+    return bool(
+        user
+        and user.is_authenticated
+        and (user.is_staff or user.is_superuser)
+    )
+
+
+def _serialize_pro_user(u: User) -> dict:
+    return {
+        "id": u.id,
+        "username": u.username,
+        "email": u.email,
+        "first_name": u.first_name,
+        "last_name": u.last_name,
+        "role": u.role,
+        "est_valide": u.est_valide,
+        "statut_pro": u.statut_pro,
+        "statut_pro_label": u.get_statut_pro_display(),
+        "date_joined": u.date_joined,
+        "is_active": u.is_active,
+    }
