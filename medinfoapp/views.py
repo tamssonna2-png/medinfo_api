@@ -208,8 +208,8 @@ class AssistantAIView(APIView):
             "Tu es l'assistant IA de MediInfo. Tu fournis uniquement des informations générales "
             "sur les médicaments (jamais de diagnostic médical ni d'ordonnance). "
             "Appuie-toi prioritairement sur le catalogue ci-dessous. Si une information n'est pas "
-            "présente dans le catalogue ni lisible sur l'image, indique clairement que l'information "
-            "est insuffisante dans le catalogue plutôt que d'inventer.\n\n"
+            "présente dans le catalogue, tu peux faire la recherche sur internet pour repondre si ce n'est pas lisible sur l'image, indique clairement que l'information "
+            "est pas lisible.\n\n"
             f"CATALOGUE DISPONIBLE :\n{catalogue_texte}"
         )
 
